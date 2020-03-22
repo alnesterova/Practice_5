@@ -1,0 +1,320 @@
+---
+title: "Упражнение 5"
+author: "Нестерова А.И."
+date: "22 03 2020"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Математическое моделирование
+
+### Кросс-валидация и бутстреп  
+
+**1** Оценить стандартную ошибку модели для линейных регрессионных моделей из упражнения 4 (варианты ниже): а) со всеми объясняющими переменными; б) только с непрерывными объясняющими переменными:    
+- методом проверочной выборки с долей обучающей 50%;    
+- методом LOOCV;    
+- k-кратной кросс-валидацией с $k = 5$ и $k = 10$.    
+Выбрать лучшую модель по минимуму ошибки. Все ли методы кросс-валидации сходятся на одной и той же модели?
+
+**2** Оценить стандартные ошибки параметров лучшей модели регрессии методом бутстрепа. Сравнить с оценками стандартных ошибок параметров по МНК.
+
+**Как сдавать:** прислать на почту преподавателя ссылки:    
+- на html-отчёт с видимыми блоками кода (блоки кода с параметром echo = T), размещённый на [rpubs.com](rpubs.com).
+- на код, генерирующий отчёт, в репозитории на [github.com](github.com).    
+В текст отчёта включить постановку задачи и ответы на вопросы задания.  
+
+### Вариант - 13
+
+*Модели*: линейная регрессия.   
+*Данные*: `Carseats {ISLR}'.  
+
+Набор данных `Carseats` содержит переменные:  
+
+- `Sales` - объем продаж в каждом месте (в тысячах);
+- `Price` – взимаемая плата за автокресла на каждом участке;  
+- `Population` – численность населения в регионе (в тысячах);
+- `ShelveLoc` – коэффициент, указывающий на качество места для размещения автомобильных кресел на каждом участке:
+
+**1** – плохое (Bad);
+**2** – хорошее (Good);
+**3** - среднее (Medium).
+
+```{r Данные и пакеты, warning = F, message = F}
+# загрузка пакетов
+library('knitr')             # пакет для генерации отчёта
+library('ISLR')              # набор данных Carseats
+library('GGally')            # матричные графики
+library('boot')              # расчёт ошибки с кросс-валидацией
+
+my.seed <- 1
+
+# загрузка данных Carseats
+data('Carseats')
+# отбор необходимых данных для построения моделей
+Carseats <- Carseats[,c('Sales', 'Price', 'Population', 'ShelveLoc'),drop=FALSE]
+```
+
+Рассмотрим данные с характеристиками автомобилей `Carseats` из пакета `ISLR`. Скопируем таблицу во фрейм `DF.carseats` для дальнейших манипуляций.   
+
+```{r}
+# запись данных в фрейм
+DF.carseats <- Carseats
+
+# просмотр первых записей
+head(DF.carseats)
+
+# описательные статистики
+summary(DF.carseats)
+```
+
+В таблице данных `r nrow(DF.carseats)` наблюдений и `r ncol(DF.carseats)` переменных, среди которых есть непрерывные количественные и одна дискретная (`ShelveLoc`, коэффициент, указывающий на качество места для размещения автомобильных кресел).
+Построим графики разброса, показав фактор `ShelveLoc` (коэффициент, указывающий на качество места для размещения автомобильных кресел) цветом. Зависимой переменной модели будет `Sales`, её покажем в первой строке / столбце матричного графика.     
+
+```{r, cache = T, message = F, warning = F}
+# переводим дискретные количественные переменные в факторы
+Carseats$ShelveLoc <- as.factor(Carseats$ShelveLoc)
+
+# графики разброса, цвет -- ShelveLoc
+ggpairs(DF.carseats, ggplot2::aes(color = ShelveLoc))
+```
+
+## Метод проверочной выборки 
+
+Он состоит в том, что мы отбираем одну тестовую выборку и будем считать на ней ошибку модели.    
+
+```{r}
+# общее число наблюдений
+n <- nrow(DF.carseats)
+
+# доля обучающей выборки
+train.percent <- 0.5
+
+# выбрать наблюдения в обучающую выборку
+set.seed(my.seed)
+inTrain <- sample(n, n * train.percent)
+
+# рисуем разными цветами обучающую и тестовую (для непрерывных переменных)
+
+# Price
+par(mfrow = c(1, 2))
+plot(DF.carseats$Price[inTrain], DF.carseats$Sales[inTrain],
+     xlab = 'Price', ylab = 'Sales', pch = 21,
+     col = rgb(0, 0, 1, alpha = 0.4), bg = rgb(0, 0, 1, alpha = 0.4))
+points(DF.carseats$Price[-inTrain], DF.carseats$Sales[-inTrain],
+       pch = 21, col = rgb(1, 0, 0, alpha = 0.4), 
+       bg = rgb(1, 0, 0, alpha = 0.4))
+legend('topright', 
+       pch = c(16, 16), col = c('blue', 'red'), legend = c('test', 'train'))
+
+# Population
+plot(DF.carseats$Population[inTrain], DF.carseats$Sales[inTrain],
+     xlab = 'Population', ylab = 'Sales', pch = 21,
+     col = rgb(0, 0, 1, alpha = 0.4), bg = rgb(0, 0, 1, alpha = 0.4))
+points(DF.carseats$Population[-inTrain], DF.carseats$Sales[-inTrain],
+       pch = 21, col = rgb(1, 0, 0, alpha = 0.4), 
+       bg = rgb(1, 0, 0, alpha = 0.4))
+legend('topright', 
+       pch = c(16, 16), col = c('blue', 'red'), legend = c('test', 'train'))
+
+par(mfrow = c(1, 1))
+```
+
+Построим модели для проверки точности. Вид моделей:   
+
+а) Со всеми объясняющими переменными
+$$
+\hat{Sales} = f(Price, Population, ShelveLoc);
+$$
+б) Только с непрерывными объясняющими переменными
+$$
+\hat{Sales} = f(Price, Population).
+$$
+
+**Линейная модель a)**: $\hat{Sales} = \hat{\beta}_0 + \hat{\beta}_1 \cdot Price + \hat{\beta}_2 \cdot Population + \hat{\beta}_3 \cdot ShelveLoc$.  
+
+``` {r, warning = F, message = F}
+# присоединить таблицу с данными: названия стоблцов будут доступны напрямую
+attach(DF.carseats)
+
+# подгонка линейной модели на обучающей выборке
+fit.lm.1 <- lm(Sales ~ Price + Population + ShelveLoc, subset = inTrain)
+
+# считаем MSE на тестовой выборке
+mean((Sales[-inTrain] - predict(fit.lm.1, DF.carseats[-inTrain, ]))^2)
+
+# отсоединить таблицу с данными
+detach(DF.carseats)
+```
+
+```{r}
+# сохраняем ошибку модели (MSE) на проверочной выборке
+err.test <- mean((DF.carseats$Sales[-inTrain] - predict(fit.lm.1, 
+                                                  DF.carseats[-inTrain, ]))^2)
+
+# сохранять все ошибки будем в один вектор, присваиваем имя первому элементу
+#  (имя -- степень объясняющей переменной)
+names(err.test) <- 1
+```
+
+**Линейная модель б)**: $\hat{Sales} = \hat{\beta}_0 + \hat{\beta}_1 \cdot Price + \hat{\beta}_2 \cdot Population$.  
+
+``` {r, warning = F, message = F}
+# присоединить таблицу с данными: названия стоблцов будут доступны напрямую
+attach(DF.carseats)
+
+# подгонка линейной модели на обучающей выборке
+fit.lm.2 <- lm(Sales ~ Price + Population, subset = inTrain)
+
+# считаем MSE на тестовой выборке
+mean((Sales[-inTrain] - predict(fit.lm.2, DF.carseats[-inTrain, ]))^2)
+
+# отсоединить таблицу с данными
+detach(DF.carseats)
+```
+
+```{r}
+# сохраняем ошибку модели (MSE) на проверочной выборке
+err.test <- c(err.test,
+              mean((DF.carseats$Sales[-inTrain] - predict(fit.lm.2,
+                                                 DF.carseats[-inTrain, ]))^2))
+
+# имя второго элемента вектора
+names(err.test)[length(err.test)] <- 2
+```
+
+### Перекрёстная проверка по отдельным наблюдениям (LOOCV)
+
+Это самый затратный в вычислительном плане метод, но и самый надёжный в плане оценки ошибки вне выборки. Попробуем применить его к линейной модели а).    
+
+```{r}
+# подгонка линейной модели на обучающей выборке
+fit.glm1 <- glm(Sales ~ Price + Population + ShelveLoc, data = DF.carseats)
+
+# считаем LOOCV-ошибку
+cv.err.loocv <- cv.glm(DF.carseats, fit.glm1)$delta[1]
+
+# сохранять все ошибки будем в один вектор, присваиваем имя первому элементу
+#  (имя -- степень объясняющей переменной)
+names(cv.err.loocv) <- 1
+```  
+
+Теперь оценим точность линейной модели б).
+
+```{r}
+# подгонка линейной модели на обучающей выборке
+fit.glm2 <- glm(Sales ~ Price + Population, data = DF.carseats)
+
+# считаем LOOCV-ошибку
+cv.err.loocv <- c(cv.err.loocv, cv.glm(DF.carseats, fit.glm2)$delta[1])
+
+# сохранять все ошибки будем в один вектор, присваиваем имя второму элементу
+names(cv.err.loocv)[length(cv.err.loocv)] <- 2
+
+# результат
+cv.err.loocv
+```  
+
+### k-кратная перекрёстная проверка
+
+K-кратная кросс-валидация -- компромисс между методом проверочной выборки и LOOCV. Оценка ошибки вне выборки ближе к правде, по сравнению с проверочной выборкой, а объём вычислений меньше, чем при LOOCV. Проведём 5-кратную кросс-валидацию моделей а) и б).     
+
+```{r}
+# оценим точность линейных моделей а) и б)
+# вектор с ошибками по 5-кратной кросс-валидации
+cv.err.k.fold5 <- rep(0, 2)
+
+# имена элементов вектора
+names(cv.err.k.fold5) <- 1:2
+
+# оценка модели а)
+fit.glm <- glm(Sales ~ Price+ Population + ShelveLoc, data = DF.carseats)
+# расчёт ошибки
+cv.err.k.fold5[1] <- cv.glm(DF.carseats, fit.glm, K = 5)$delta[1]
+
+# оценка модели б)
+fit.glm <- glm(Sales ~ Price+ Population, data = DF.carseats)
+# расчёт ошибки
+cv.err.k.fold5[2] <- cv.glm(DF.carseats, fit.glm, K = 5)$delta[1]
+
+# результат
+cv.err.k.fold5
+```
+
+Теперь проведём 5-кратную кросс-валидацию моделей а) и б).
+
+```{r}
+# оценим точность линейных моделей а) и б)
+# вектор с ошибками по 10-кратной кросс-валидации
+cv.err.k.fold10 <- rep(0, 2)
+
+# имена элементов вектора
+names(cv.err.k.fold10) <- 1:2
+
+# оценка модели а)
+fit.glm <- glm(Sales ~ Price+ Population + ShelveLoc, data = DF.carseats)
+# расчёт ошибки
+cv.err.k.fold10[1] <- cv.glm(DF.carseats, fit.glm, K = 10)$delta[1]
+
+# оценка модели б)
+fit.glm <- glm(Sales ~ Price+ Population, data = DF.carseats)
+# расчёт ошибки
+cv.err.k.fold10[2] <- cv.glm(DF.carseats, fit.glm, K = 10)$delta[1]
+
+# результат
+cv.err.k.fold10
+```
+
+Для определения лучшей модели по стандартной ошибке MSE объединим все полученные результаты в таблицу.
+
+```{r tbl}
+MSE.tbl <- rbind(err.test, cv.err.loocv, cv.err.k.fold5, cv.err.k.fold10)
+colnames(MSE.tbl)<-c('Модель а)', 'Модель б)')
+row.names(MSE.tbl) <- c('Проверочная выборка', 'LOOCV', '5-кратная кросс-валидация', '10-кратная кросс-валидация')
+kable(MSE.tbl)
+```
+
+Опираясь на результаты расчётов с проверочной выборкой, LOOCV и кросс-валидацией ($k = 5$ и $k = 10$), можно заключить, что стандартная ошибка MSE линейной модели а) (со всеми объясняющими переменными) оказалась меньше по всем методам кросс-валидации, чем MSE линейной модели б) (только с непрерывными объясняющими переменными). Таким образом, линейная модель а) оказалась лучшей: $\hat{Sales} = \hat{\beta}_0 + \hat{\beta}_1 \cdot Price + \hat{\beta}_2 \cdot Population + \hat{\beta}_3 \cdot ShelveLoc$.
+
+## Бутстреп   
+
+### Точность оценки параметра регрессии   
+
+При построении модели регрессии проблемы в остатках приводят к неверной оценке ошибок параметров. Обойти эту проблему можно, применив для расчёта этих ошибок бутстреп.   
+
+```{r, warning = F, message = F}
+
+# Оценивание точности лучшей линейной регрессионной модели ----------------------------
+
+#  оценить стандартные ошибки параметров модели 
+#  Sales = beta_0 + beta_1 * Price + beta_2 * Population + beta_3 * ShelveLoc с помощью бутстрепа,
+#  сравнить с оценками ошибок по МНК
+
+# функция для расчёта коэффициентов ЛР по выборке из данных
+boot.fn <- function(data, index){
+  coef(lm(Sales ~ Price + Population + ShelveLoc, data = data, subset = index))
+}
+boot.fn(DF.carseats, 1:n)
+
+# пример применения функции к бутстреп-выборке
+set.seed(my.seed)
+boot.fn(DF.carseats, sample(n, n, replace = T))
+
+# применяем функцию boot для вычисления стандартных ошибок параметров
+#  (1000 выборок с повторами)
+boot(DF.carseats, boot.fn, 1000)
+
+# сравним с МНК
+attach(DF.carseats)
+summary(lm(Sales ~ Price + Population + ShelveLoc))$coef
+detach(DF.carseats)
+```
+
+В модели регрессии, для которой проводился расчёт, похоже, не нарушаются требования к остаткам, и оценки стандартных ошибок параметров, рассчитанные по МНК, очень близки к ошибкам этих же параметров, полученных бутстрепом.   
+
+
+
